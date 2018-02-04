@@ -54,6 +54,12 @@ typedef struct MDH {
 
 #define MDH_new()	calloc(1,sizeof(MDH))
 #define MDH_free(vp)	{MDH *_dh = vp; dhm_free(&_dh->ctx); MP_free(_dh->p); MP_free(_dh->g); MP_free(_dh->pub_key); MP_free(_dh->priv_key); free(_dh);}
+#define MDH_get_g(_dh)   _dh->g
+#define MDH_get_p(_dh)   _dh->p
+#define MDH_get_pub_key(_dh)   _dh->pub_key
+#define MDH_get_priv_key(_dh)   _dh->priv_key
+#define MDH_set_length(_dh, len)   _dh->length = len
+#define MDH_set_key(_dh, pub, priv)   _dh->pub_key = pub; _dh->priv_key = priv
 
 static int MDH_generate_key(MDH *dh)
 {
@@ -104,6 +110,12 @@ typedef struct MDH {
 
 #define	MDH_new()	calloc(1,sizeof(MDH))
 #define MDH_free(dh)	do {MP_free(((MDH*)(dh))->p); MP_free(((MDH*)(dh))->g); MP_free(((MDH*)(dh))->pub_key); MP_free(((MDH*)(dh))->priv_key); free(dh);} while(0)
+#define MDH_get_g(_dh)   _dh->g
+#define MDH_get_p(_dh)   _dh->p
+#define MDH_get_pub_key(_dh)   _dh->pub_key
+#define MDH_get_priv_key(_dh)   _dh->priv_key
+#define MDH_set_length(_dh, len)   _dh->length = len
+#define MDH_set_key(_dh, pub, priv)   _dh->pub_key = pub; _dh->priv_key = priv
 
 static int MDH_generate_key(MDH *dh)
 {
@@ -184,6 +196,38 @@ typedef BIGNUM * MP_t;
 #define MDH	DH
 #define MDH_new()	DH_new()
 #define MDH_free(dh)	DH_free(dh)
+#if OPENSSL_API_COMPAT < 0x10100000L
+static const MP_t MDH_get_g(MDH *dh) {
+  const BIGNUM *g, *p, *q;
+  DH_get0_pqg(dh, &p, &q, &g);
+  return g;
+}
+static const BIGNUM * MDH_get_p(MDH *dh) {
+  const BIGNUM *g, *p, *q;
+  DH_get0_pqg(dh, &p, &q, &g);
+  return p;
+}
+static const BIGNUM * MDH_get_pub_key(MDH *dh) {
+  const BIGNUM *pub, *priv;
+  DH_get0_key(dh, &pub, &priv);
+  return pub;
+}
+static const BIGNUM * MDH_get_priv_key(MDH *dh) {
+  const BIGNUM *pub, *priv;
+  DH_get0_key(dh, &pub, &priv);
+  return priv;
+}
+
+#define MDH_set_length(_dh, len)    DH_set_length(_dh, len)
+#define MDH_set_key(_dh, pub, priv) DH_set0_key(_dh, pub, priv)
+#else
+#define MDH_get_g(_dh)   _dh->g
+#define MDH_get_p(_dh)   _dh->p
+#define MDH_get_pub_key(_dh)   _dh->pub_key
+#define MDH_get_priv_key(_dh)   _dh->priv_key
+#define MDH_set_length(_dh, len)   _dh->length = len
+#define MDH_set_key(_dh, pub, priv)   _dh->pub_key = pub; _dh->priv_key = priv
+#endif
 #define MDH_generate_key(dh)	DH_generate_key(dh)
 #define MDH_compute_key(secret, seclen, pub, dh)	DH_compute_key(secret, pub, dh)
 
@@ -247,26 +291,29 @@ failed:
 static MDH *
 DHInit(int nKeyBits)
 {
+  MP_t g, p;
   size_t res;
   MDH *dh = MDH_new();
 
   if (!dh)
     goto failed;
 
-  MP_new(dh->g);
+  g = MDH_get_g(dh);
+  MP_new(g);
 
-  if (!dh->g)
+  if (!MDH_get_g(dh))
     goto failed;
 
-  MP_gethex(dh->p, P1024, res);	/* prime P1024, see dhgroups.h */
+  p = MDH_get_p(dh);
+  MP_gethex(p, P1024, res);	/* prime P1024, see dhgroups.h */
   if (!res)
     {
       goto failed;
     }
 
-  MP_set_w(dh->g, 2);	/* base 2 */
+  MP_set_w(MDH_get_g(dh), 2);	/* base 2 */
 
-  dh->length = nKeyBits;
+  MDH_set_length(dh, nKeyBits);
   return dh;
 
 failed:
@@ -293,12 +340,12 @@ DHGenerateKey(MDH *dh)
       MP_gethex(q1, Q1024, res);
       assert(res);
 
-      res = isValidPublicKey(dh->pub_key, dh->p, q1);
+      res = isValidPublicKey(MDH_get_pub_key(dh), MDH_get_p(dh), q1);
       if (!res)
 	{
-	  MP_free(dh->pub_key);
-	  MP_free(dh->priv_key);
-	  dh->pub_key = dh->priv_key = 0;
+	  MP_free(MDH_get_pub_key(dh));
+	  MP_free(MDH_get_priv_key(dh));
+	  MDH_set_key(dh,0,0);
 	}
 
       MP_free(q1);
@@ -314,15 +361,15 @@ static int
 DHGetPublicKey(MDH *dh, uint8_t *pubkey, size_t nPubkeyLen)
 {
   int len;
-  if (!dh || !dh->pub_key)
+  if (!dh || !MDH_get_pub_key(dh))
     return 0;
 
-  len = MP_bytes(dh->pub_key);
+  len = MP_bytes(MDH_get_pub_key(dh));
   if (len <= 0 || len > (int) nPubkeyLen)
     return 0;
 
   memset(pubkey, 0, nPubkeyLen);
-  MP_setbin(dh->pub_key, pubkey + (nPubkeyLen - len), len);
+  MP_setbin(MDH_get_pub_key(dh), pubkey + (nPubkeyLen - len), len);
   return 1;
 }
 
@@ -330,15 +377,15 @@ DHGetPublicKey(MDH *dh, uint8_t *pubkey, size_t nPubkeyLen)
 static int
 DHGetPrivateKey(MDH *dh, uint8_t *privkey, size_t nPrivkeyLen)
 {
-  if (!dh || !dh->priv_key)
+  if (!dh || !MDH_get_priv_key(dh))
     return 0;
 
-  int len = MP_bytes(dh->priv_key);
+  int len = MP_bytes(MDH_get_priv_key(dh));
   if (len <= 0 || len > (int) nPrivkeyLen)
     return 0;
 
   memset(privkey, 0, nPrivkeyLen);
-  MP_setbin(dh->priv_key, privkey + (nPrivkeyLen - len), len);
+  MP_setbin(MDH_get_priv_key(dh), privkey + (nPrivkeyLen - len), len);
   return 1;
 }
 #endif
@@ -364,7 +411,7 @@ DHComputeSharedSecretKey(MDH *dh, uint8_t *pubkey, size_t nPubkeyLen,
   MP_gethex(q1, Q1024, len);
   assert(len);
 
-  if (isValidPublicKey(pubkeyBn, dh->p, q1))
+  if (isValidPublicKey(pubkeyBn, MDH_get_p(dh), q1))
     res = MDH_compute_key(secret, nPubkeyLen, pubkeyBn, dh);
   else
     res = -1;
