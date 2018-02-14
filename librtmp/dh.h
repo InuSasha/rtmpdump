@@ -21,9 +21,9 @@
  *  http://www.gnu.org/copyleft/lgpl.html
  */
 
-#if define(USE_POLARSSL) || defined(USE_GNUTLS)
+#if defined(USE_POLARSSL) || defined(USE_GNUTLS)
 #include dh_classic.h
-#elif define(USE_OPENSSL11)
+#elif defined(USE_OPENSSL11)
 #include <openssl/bn.h>
 #include <openssl/dh.h>
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
